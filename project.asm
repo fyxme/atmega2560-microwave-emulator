@@ -21,13 +21,13 @@
 .equ ROWMASK = 0xF0 ; for obtaining input from Port D
 
 ; MODES
-.def mode = r1 ;
+.def mode = r23 ;
 
 .equ ENTRY_MODE = 1;
 .equ RUNNING_MODE = 2;
 .equ PAUSE_MODE = 3;
 .equ FINISH_MODE = 4;
-.equ POWER_REQUEST_MODE = 5;
+.equ POWER_SELECTION_MODE = 5;
 
 
 ; Other variables
@@ -296,7 +296,7 @@ ENTRY :
 		TIME_INPUTTED : 
 			rjmp SWITCH_MODE_RUNNING
 
-	NUMBERS_ENTRY :
+	NUMBER_ENTRY :
 	mov temp1, ent_count
 	cpi temp1, 0
 	brne FIRST_NUMBER_INPUT_END
@@ -314,12 +314,14 @@ ENTRY :
 	breq main
 
 	; multiply number of minutes by 10
-	mul ent_min, 10
+	ldi temp1, 10
+	mul ent_min, temp1
 
 	; count number of 10s of seconds
 	COUNT_SEC:
 		ldi temp1, 0
-		cpi ent_sec, 10
+		mov temp2, ent_sec
+		cpi temp2, 10
 		brlt END_COUNT_SEC
 		inc temp1
 		rjmp COUNT_SEC
@@ -330,13 +332,15 @@ ENTRY :
 	add ent_min, temp1
 
 	; multiply the number of seconds by 10
-	mul ent_sec, 10
+	ldi temp1, 10
+	mul ent_sec, temp1
 
 	; add the input
 	add ent_sec, key_pressed
 
 	; increase entered count
-	add ent_count, 1
+	ldi temp1, 1
+	add ent_count, temp1
 
 	rjmp main
 
@@ -370,11 +374,12 @@ FINISH :
 
 POWER_SELECTION : 
 	POWER_SELECTION_SELECT :
-		cpi pressed_key, 1 ; check if 1 inputted // 100 % -- 8 LEDs Lit
+		mov temp1, key_pressed
+		cpi temp1, 1 ; check if 1 inputted // 100 % -- 8 LEDs Lit
 		breq ADJUST_POWER_100
-		cpi pressed_key, 2 ; check if 2 inputted // 50% -- 4 LEDs Lit
+		cpi temp1, 2 ; check if 2 inputted // 50% -- 4 LEDs Lit
 		breq ADJUST_POWER_50
-		cpi pressed_key ; check if 3 inputted // 25% -- 2 LEDs Lit
+		cpi temp1, 3 ; check if 3 inputted // 25% -- 2 LEDs Lit
 		breq ADJUST_POWER_25
 		rjmp main
 
