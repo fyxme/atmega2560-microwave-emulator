@@ -1,10 +1,10 @@
 .include "m2560def.inc"
 
 ; LCD 
-.equ LCD_RS = 11
-.equ LCD_E = 10
-.equ LCD_RW = 9
-.equ LCD_BE = 8
+.equ LCD_RS = 7
+.equ LCD_E = 6
+.equ LCD_RW = 5
+.equ LCD_BE = 4
 
 .def LCD_DISPLAY = r16 ; LCD display
 
@@ -29,18 +29,17 @@
 .equ FINISH_MODE = 4;
 .equ POWER_SELECTION_MODE = 5;
 
-
 ; Other variables
 .def temp1 = r21
 .def temp2 = r22
 .def key_pressed = r2 ;
 .def past_rotate_direction = r3 ; 1 = clockwise && 2 = anti-clockwise
-.def spin_percentage = r4 ; 1 - 100%, 2 - 50%, 3 - 25%
-.def door_is_open = r5 ; closed by default
+.def spin_percentage = r8 ; 1 - 100%, 2 - 50%, 3 - 25%
+.def door_is_open = r9 ; closed by default
 
 .def ent_sec = r13 ; number of minutes entered
 .def ent_min = r14 ; number of seconds entered
-.def ent_count = r6
+.def ent_count = r10
 
 ; Macros 
 .macro callINT
@@ -87,10 +86,12 @@
 
 .cseg
 
+
 BEGIN:
 	ldi mode, ENTRY_MODE; initialise mode // initial mode = 1 aka ENTRY_MODE
 
-RESET:
+
+MAIN:
 	; KEYPAD RESET
 	ldi temp1, low(RAMEND) ; initialize the stack
 	out SPL, temp1
@@ -116,7 +117,53 @@ RESET:
 	out PORTF, LCD_DISPLAY
 	out PORTA, LCD_DISPLAY
 
-main:
+	; Display stuff according to mode
+	rcall DISPLAY_FROM_MODE
+
+	; Display power on LEDs
+
+	; Make motor run if necessary
+		; check if in correct mode
+			; if so run motor according to power
+			; otherwise do nothing
+
+;
+; Function that displays whatever is needed according to the given mode 
+;
+DISPLAY_FROM_MODE:
+	cpi mode, ENTRY_MODE
+	breq DISPLAY_ENTRY_MODE
+
+	cpi mode, RUNNING_MODE
+	breq DISPLAY_RUNNING_MODE
+
+	cpi mode, PAUSE_MODE
+	breq DISPLAY_PAUSE_MODE
+
+	cpi mode, FINISH_MODE
+	breq DISPLAY_FINISH_MODE
+
+	cpi mode, POWER_SELECTION_MODE
+	breq DISPLAY_POWER_SELECION_MODE
+
+	DISPLAY_ENTRY_MODE:
+
+
+	DISPLAY_RUNNING_MODE:
+
+
+	DISPLAY_PAUSE_MODE:
+
+
+	DISPLAY_FINSH_MODE:
+
+
+	DISPLAY_POWER_SELECTION_MODE:
+
+DISPLAY_OVER:
+	ret
+
+START_MAIN_LOOP:
 	ldi cmask, INITCOLMASK ; initial column mask
 	clr col ; initial column
 
@@ -175,14 +222,19 @@ main:
 	numbers:
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
-		breq NUMBER_ENTRY
+		breq NUMBER_ENTRY_JUMP
 
 		; check if in POWER_SELECTION_MODE
 		cpi mode, POWER_SELECTION_MODE
-		breq POWER_SELECTION_SELECT
+		breq POWER_SELECTION_SELECT_JUMP
 
-		rjmp main ; not used by other modes
+		jmp main ; not used by other modes
 
+		NUMBER_ENTRY_JUMP:
+			jmp NUMBER_ENTRY
+
+		POWER_SELECTION_SELECT_JUMP:
+			jmp POWER_SELECTION_SELECT
 
 	letters:
 		ldi temp1, 'A'
@@ -191,13 +243,19 @@ main:
 
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
-		breq LETTERS_ENTRY
+		breq LETTERS_ENTRY_JUMP
 
 		; check if RUNNING_MODE 
 		cpi mode, RUNNING_MODE
-		breq LETTERS_RUNNING
+		breq LETTERS_RUNNING_JUMP
 
-		rjmp main ; not used for other modes
+		jmp main ; not used for other modes
+
+		LETTERS_ENTRY_JUMP:
+			jmp LETTERS_ENTRY
+
+		LETTERS_RUNNING_JUMP:
+			jmp LETTERS_RUNNING
 
 	symbols:
 		cpi col, 0 ; Check if we have a star
@@ -211,19 +269,30 @@ main:
 
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
-		breq HASH_ENTRY
+		breq HASH_ENTRY_JUMP
 
 		; check if RUNNING_MODE 
 		cpi mode, RUNNING_MODE
-		breq HASH_RUNNING
+		breq HASH_RUNNING_JUMP
 
 		; check if FINISH_MODE
 		cpi mode, FINISH_MODE
-		breq HASH_FINISH
+		breq HASH_FINISH_JUMP
 
 		; check if POWER_SELECTION_MODE
 		cpi mode, POWER_SELECTION_MODE
-		breq POWER_SELECTION_CANCEL
+		breq POWER_SELECTION_CANCEL_JUMP
+
+		jmp main ; not used for other modes
+
+		HASH_ENTRY_JUMP:
+			jmp HASH_ENTRY
+		HASH_RUNNING_JUMP:
+			jmp HASH_RUNNING
+		HASH_FINISH_JUMP:
+			jmp HASH_FINISH
+		POWER_SELECTION_CANCEL_JUMP:
+			jmp POWER_SELECTION_CANCEL
 
 	star:
 		ldi temp1, '*' ; Set to star
@@ -231,19 +300,30 @@ main:
 
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
-		breq STAR_ENTRY
+		breq STAR_ENTRY_JUMP
 
 		; check if RUNNING_MODE 
 		cpi mode, RUNNING_MODE
-		breq STAR_RUNNING
+		breq STAR_RUNNING_JUMP
 
 		; check if PAUSE_MODE // letters not used in PAUSE MODE
 		cpi mode, PAUSE_MODE
-		breq STAR_PAUSE
+		breq STAR_PAUSE_JUMP
 
 		; check if FINISH_MODE // letters not used in FINISH MODE
 		cpi mode, FINISH_MODE
-		breq STAR_FINISH
+		breq STAR_FINISH_JUMP
+
+		jmp main ; not used for other modes
+
+		STAR_ENTRY_JUMP:
+			jmp STAR_ENTRY
+		STAR_RUNNING_JUMP:
+			jmp STAR_RUNNING
+		STAR_PAUSE_JUMP:
+			jmp STAR_PAUSE
+		STAR_FINISH_JUMP:
+			jmp STAR_FINISH
 
 	zero:
 		ldi temp1, '0' ; Set to zero
@@ -252,19 +332,30 @@ main:
 
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
-		breq NUMBER_ENTRY
+		breq ZERO_ENTRY_JUMP
 
 		; check if RUNNING_MODE 
 		cpi mode, RUNNING_MODE
-		breq NUMBER_RUNNING
+		breq NUMBER_RUNNING_JUMP
 
 		; check if PAUSE_MODE // letters not used in PAUSE MODE
 		cpi mode, PAUSE_MODE
-		breq NUMBER_PAUSE
+		breq NUMBER_PAUSE_JUMP
 
 		; check if FINISH_MODE // letters not used in FINISH MODE
 		cpi mode, FINISH_MODE
-		breq NUMBER_FINISH
+		breq NUMBER_FINISH_JUMP
+
+		jmp main ; not used for other modes
+
+		ZERO_ENTRY_JUMP:
+			jmp NUMBER_ENTRY
+		NUMBER_RUNNING_JUMP:
+			jmp NUMBER_RUNNING
+		NUMBER_PAUSE_JUMP:
+			jmp NUMBER_PAUSE
+		NUMBER_FINISH_JUMP:
+			jmp NUMBER_FINISH
 
 	convert_end:
 		; DO SOMETHING WITH KEY PRESSED HERE
@@ -274,14 +365,17 @@ ENTRY :
 	LETTERS_ENTRY :
 		mov temp1, key_pressed
 		cpi temp1, 'A'
-		breq SWITCH_MODE_PWRLVL
-		rjmp main
+		breq SWITCH_MODE_PWRLVL_JUMP
+		jmp main
+
+		SWITCH_MODE_PWRLVL_JUMP:
+			jmp SWITCH_MODE_PWRLVL
 
 	HASH_ENTRY : 
 		; clr entered time
 		clr ent_sec 
 		clr ent_min
-		rjmp main
+		jmp main
 
 	STAR_ENTRY :
 			mov temp1, ent_sec
@@ -294,7 +388,7 @@ ENTRY :
 			mov ent_min, temp1 ; store it in entered number of minutes
 
 		TIME_INPUTTED : 
-			rjmp SWITCH_MODE_RUNNING
+			jmp SWITCH_MODE_RUNNING
 
 	NUMBER_ENTRY :
 	mov temp1, ent_count
@@ -303,15 +397,15 @@ ENTRY :
 
 	; first number input can't be 0
 	FIRST_NUMBER_INPUT :
-	mov temp1, key_pressed
-	cpi temp1, 0
-	breq main
+		mov temp1, key_pressed
+		cpi temp1, 0
+		breq INVALID_INPUT
 	FIRST_NUMBER_INPUT_END :
 
 	; if 4 numbers have been inputted go back to main
 	mov temp1, ent_count
 	cpi temp1, 4
-	breq main
+	breq INVALID_INPUT
 
 	; multiply number of minutes by 10
 	ldi temp1, 10
@@ -324,7 +418,7 @@ ENTRY :
 		cpi temp2, 10
 		brlt END_COUNT_SEC
 		inc temp1
-		rjmp COUNT_SEC
+		jmp COUNT_SEC
 	END_COUNT_SEC:
 	; temp1 holds the number of seconds
 
@@ -342,14 +436,15 @@ ENTRY :
 	ldi temp1, 1
 	add ent_count, temp1
 
-	rjmp main
+INVALID_INPUT:
+	jmp main
 
 RUNNING :
 	LETTERS_RUNNING :
 
 
 
-	rjmp main
+	jmp main
 
 
 
@@ -357,7 +452,7 @@ PAUSE :
 	LETTERS_PAUSE :
 
 
-	rjmp main
+	jmp main
 
 
 
@@ -368,7 +463,7 @@ FINISH :
 
 
 
-	rjmp main
+	jmp main
 
 
 
@@ -381,47 +476,47 @@ POWER_SELECTION :
 		breq ADJUST_POWER_50
 		cpi temp1, 3 ; check if 3 inputted // 25% -- 2 LEDs Lit
 		breq ADJUST_POWER_25
-		rjmp main
+		jmp main
 
 	POWER_SELECTION_CANCEL :
 
-		rjmp main
+		jmp main
 
 	ADJUST_POWER_100 : 
 		; adjust spin_percentage to 1
-		rjmp main
+		jmp main
 
 
 	ADJUST_POWER_50 :
 		; adjust spin_percentage to 2
-		rjmp main
+		jmp main
 
 	ADJUST_POWER_25 :
 		; adjust spin_percentage to 3
-		rjmp main	
+		jmp main	
 
 
 
 SWITCH_MODE : 
 	SWITCH_MODE_PWRLVL :
-		ldi mode, POWER_REQUEST_MODE
-		rjmp main
+		ldi mode, POWER_SELECTION_MODE
+		jmp main
 
 	SWITCH_MODE_ENTRY :
 		ldi mode, ENTRY_MODE
-		rjmp main
+		jmp main
 
 	SWITCH_MODE_PAUSE :
 		ldi mode, PAUSE_MODE
-		rjmp main
+		jmp main
 
 	SWITCH_MODE_RUNNING :
 		ldi mode, RUNNING_MODE
-		rjmp main
+		jmp main
 
 	SWITCH_MODE_FINISH :
 		ldi mode, FINISH_MODE
-		rjmp main
+		jmp main
 
 
 ;
@@ -452,9 +547,11 @@ RESET_DIPSLAY:
 	do_lcd_command 0b00000110 ; increment, no display shift
 	do_lcd_command 0b00001110 ; Cursor on, bar, no blink
 	ret
+
 GO_TO_SECOND_LINE:
 	; R/W and R/S are already 0.
 	do_lcd_command 0b10101000  ; Set DD address to 40 (start of second line).
+	ret
 ;
 ; Send a command to the LCD (LCD_DISPLAY)
 ;
@@ -489,7 +586,7 @@ lcd_wait_loop:
 	in LCD_DISPLAY, PINF
 	lcd_clr LCD_E
 	sbrc LCD_DISPLAY, 7
-	rjmp lcd_wait_loop
+	jmp lcd_wait_loop
 	lcd_clr LCD_RW
 	ser LCD_DISPLAY
 	out DDRF, LCD_DISPLAY
@@ -520,6 +617,5 @@ sleep_5ms:
 	rcall sleep_1ms
 	ret
 
-
 HALT : ; possibly not needed ? 
-	rjmp HALT
+	jmp HALT

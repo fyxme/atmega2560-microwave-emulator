@@ -1,0 +1,166 @@
+>> Time display
+    -- 1 minute 15 seconds should be displayed as '01:15'.
+
+>> Number keys
+    -- in entry mode allows the time to be displayed
+        >> max == 99:59 (99 minutes 59 seconds)
+        >> min == 00:01 (1 second)
+
+>> Start button
+    >> '1234567890' -- numbers input
+    >> '*' -- start button
+        >> if no value entered --> 1 minute
+
+>> Stop button
+
+
+>> More/Less buttons
+    >> 'C' adds 30 seconds
+    >> 'D' subs 30 seconds
+
+>> Open and Close buttons
+    
+
+-- Entry mode 
+    >> Default mode - the cooking time can be entered and menus accessed to configure microwave
+
+-- Running mode
+    >> Active and cooking food
+
+-- Pause mode
+    >> Part-way through cooking food
+
+-- Finished mode
+    >> Cooking has been completed
+
+
+
+-- FUNCTIONS
+    > timer function
+    > key presses function
+        >> max_input == 4 keys
+            >> ignore other button presses
+    > button presses function
+    > mod function
+    > display board
+    > motorspin function
+
+-- REGISTER
+    mode = r16
+    key_pressed = r17
+    past_rotate_direction = r18 // 1 = clockwise && 2 = anti-clockwise
+    spin_percentage = r19 // 1 - 100%, 2 - 50%, 3 - 25%
+    door_is_open = r20 // closed by default
+
+ENTRY MODE :
+    // if door is open :
+        // wait for user to close door_is_open
+    // while input != * :
+        // get input here from board
+        // if numbers input 
+            // store them in registers
+        // elsif 'A' input -- power level selection
+            // display Set Power 1/2/3'
+            // wait until the '1', '2', '3' or '#' key is pressed
+                // ('1', '2' and '3' >>  100%, 50% or 25%) && (# >> cancel input)
+        // elsif # input :
+            // clr entry time
+        // elsif * input
+            // if num == 0 :
+                // set num = 1 minute
+            // goto RUNNING MODE
+
+RUNNING MODE :
+    // set the timers to be equal to the input times from entry mode
+    STARTROTATE:
+    // while timers != 0 :
+        // display time every second
+        // spin motor
+        // if time_running == 5 seconds
+            // display.turntable rotate
+        // if 'C' input :
+            // try add 30 seconds to timer >> time cannot be more than 99:59
+        // elsif 'D' input :
+            // try remove 30 seconds to timer 
+        // elsif '#' input :
+            // goto pause
+        // elsif '*' input :
+            // add 1 minute
+        // if button.isPressed() :
+            // if open button input :
+                // go to pause mode
+    // go to finished mode
+
+
+PAUSE MODE :
+    // pause the timer >> store the timer values
+    // while 1 :
+        // if (door_is_open == false) :
+            // if '*' input :
+                // keep counting down
+            // elsif '#' input :
+                // cancel time
+                // return to entry mode
+    // restore the timer
+    // goto STARTROTATE
+
+FINISHED MODE :
+    // display 'DONE' on first level
+    // display 'Remove Food' on second level
+    // while 1 :
+        // if '#' input or open door input :
+            // goto entry mode
+
+
+
+
+A hard copy of your user manual. The user manual describes how a user uses your
+microwave emulator, including how to wire up the AVR lab board. Make sure you indicate
+which buttons perform each action and how the LED and LCD displays should be interpreted.
+
+User Manual :
+CONGRATULATIONS ON BUYING THE MICROWAVE ULTIMATE LEGEND PRO PLUS 2.0!!!!!!!!!!!!!!!!!!!!!!
+we already have your money so please do not bother us with complaints.
+
+
+DISPLAY : # 16 x 2 display
+C or O needed bottom right at all times
+turntable to be displayed in the top right of the lcd at all times >> turntable ==  '-', '/', '|' or '\' 
+
+>> ENTRY
+-==================-
+||00:01          -||
+||               C||
+-==================-
+
+>> RUNNING
+-==================-
+||00:01          |||
+||               C||
+-==================-
+
+>> PAUSED
+-==================-
+||00:01          \||
+||               O||
+-==================-
+
+>> FINISHED
+-==================-
+||Done           /||
+||Remove food    C||
+-==================-
+
+>> POWER_SELECTION
+-==================-
+||Set Power      -||
+||1/2/3          C||
+-==================-
+
+LEDS : All connected except second topmost
+if Open
+    topmost led on
+else 
+    topmost led off
+
+lower 8 leds >> display power
