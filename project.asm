@@ -31,15 +31,15 @@
 
 
 ; Other variables
-.def temp1 = r26
-.def temp2 = r27
+.def temp1 = r21
+.def temp2 = r22
 .def key_pressed = r2 ;
 .def past_rotate_direction = r3 ; 1 = clockwise && 2 = anti-clockwise
 .def spin_percentage = r4 ; 1 - 100%, 2 - 50%, 3 - 25%
 .def door_is_open = r5 ; closed by default
 
-.def ent_sec = r22
-.def ent_min = r23
+.def ent_sec = r13 ; number of minutes entered
+.def ent_min = r14 ; number of seconds entered
 .def ent_count = r6
 
 ; Macros 
@@ -162,14 +162,15 @@ main:
 		; If the key is not in col.3 and
 		cpi row, 3 ; If the key is in row3,
 		breq symbols ; we have a symbol or 0
-		mov key_pressed, row
+		mov temp1, row
 		; Otherwise we have a number in 1-9
-		lsl key_pressed
-		add key_pressed, row
-		add key_pressed, col ; key_pressed = row*3 + col
-		subi key_pressed, -'1' ; Add the value of character ‘1’
+		lsl temp1
+		add temp1, row
+		add temp1, col ; key_pressed = row*3 + col
+		subi temp1, -'1' ; Add the value of character ‘1’
 
-		subi key_pressed, '0' ; transfer ASCII value to integer value
+		subi temp1, '0' ; transfer ASCII value to integer value
+		mov key_pressed, temp1
 
 	numbers:
 		; check if in ENTRY_MODE
@@ -184,9 +185,9 @@ main:
 
 
 	letters:
-		ldi key_pressed, 'A'
-		add key_pressed, row ; Get the ASCII value for the key
-
+		ldi temp1, 'A'
+		add temp1, row ; Get the ASCII value for the key
+		mov key_pressed, temp1
 
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
@@ -205,7 +206,8 @@ main:
 		breq zero
 	
 	hash :
-		ldi key_pressed, '#' ; if not we have hash
+		ldi temp1, '#' ; if not we have hash
+		mov key_pressed, temp1
 
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
@@ -224,7 +226,8 @@ main:
 		breq POWER_SELECTION_CANCEL
 
 	star:
-		ldi key_pressed, '*' ; Set to star
+		ldi temp1, '*' ; Set to star
+		mov key_pressed, temp1
 
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
@@ -243,9 +246,9 @@ main:
 		breq STAR_FINISH
 
 	zero:
-		ldi key_pressed, '0' ; Set to zero
-
-		subi key_pressed, '0' ; transfer ASCII value to integer value
+		ldi temp1, '0' ; Set to zero
+		subi temp1, '0' ; transfer ASCII value to integer value
+		mov key_pressed, temp1
 
 		; check if in ENTRY_MODE
 		cpi mode, ENTRY_MODE
@@ -269,7 +272,8 @@ main:
 
 ENTRY :
 	LETTERS_ENTRY :
-		cpi key_pressed, 'A'
+		mov temp1, key_pressed
+		cpi temp1, 'A'
 		breq SWITCH_MODE_PWRLVL
 		rjmp main
 
@@ -279,30 +283,34 @@ ENTRY :
 		clr ent_min
 		rjmp main
 
-
 	STAR_ENTRY :
-			cpi ent_sec, 0 ; if the number of seconds is 0
+			mov temp1, ent_sec
+			cpi temp1, 0 ; if the number of seconds is 0
 			brne time_inputted
-			cpi ent_min, 0 ; if the number of minutes is 0
-			brne time_inputted
-			; add 1 minute
-			ldi ent_min, 1 ; add 1 minute
+			mov temp1, ent_min
+			cpi temp1, 0 ; if the number of minutes is not 0
+			brne time_inputted ; start the engines!!!
+			ldi temp1, 1 ; else add 1 minute
+			mov ent_min, temp1 ; store it in entered number of minutes
 
 		TIME_INPUTTED : 
 			rjmp SWITCH_MODE_RUNNING
 
 	NUMBERS_ENTRY :
-	cpi ent_count, 0
+	mov temp1, ent_count
+	cpi temp1, 0
 	brne FIRST_NUMBER_INPUT_END
 
 	; first number input can't be 0
 	FIRST_NUMBER_INPUT :
-	cpi key_pressed, 0
+	mov temp1, key_pressed
+	cpi temp1, 0
 	breq main
 	FIRST_NUMBER_INPUT_END :
 
 	; if 4 numbers have been inputted go back to main
-	cpi ent_count, 4
+	mov temp1, ent_count
+	cpi temp1, 4
 	breq main
 
 	; multiply number of minutes by 10
@@ -410,6 +418,38 @@ SWITCH_MODE :
 		ldi mode, FINISH_MODE
 		rjmp main
 
+
+;
+; Reset dipslay
+;
+RESET_DIPSLAY:
+	ldi r16, low(RAMEND)
+	out SPL, r16
+	ldi r16, high(RAMEND)
+	out SPH, r16
+
+	ser r16
+	out DDRF, r16
+	out DDRA, r16
+	clr r16
+	out PORTF, r16
+	out PORTA, r16
+
+	; clear display
+	do_lcd_command 0b00111000 ; 2x5x7
+	rcall sleep_5ms
+	do_lcd_command 0b00111000 ; 2x5x7
+	rcall sleep_1ms
+	do_lcd_command 0b00111000 ; 2x5x7
+	do_lcd_command 0b00111000 ; 2x5x7
+	do_lcd_command 0b00001000 ; display off?
+	do_lcd_command 0b00000001 ; clear display
+	do_lcd_command 0b00000110 ; increment, no display shift
+	do_lcd_command 0b00001110 ; Cursor on, bar, no blink
+	ret
+GO_TO_SECOND_LINE:
+	; R/W and R/S are already 0.
+	do_lcd_command 0b10101000  ; Set DD address to 40 (start of second line).
 ;
 ; Send a command to the LCD (LCD_DISPLAY)
 ;
