@@ -133,11 +133,15 @@ turntable to be displayed in the top right of the lcd at all times >> turntable 
 ||               C||
 -==================-
 
+; timer, rotation, open/closed
+
 >> RUNNING
 -==================-
 ||00:01          |||
-||               C||
+||Cooking Food   C||
 -==================-
+
+; timer, rotation, open/closed
 
 >> PAUSED
 -==================-
@@ -145,17 +149,24 @@ turntable to be displayed in the top right of the lcd at all times >> turntable 
 ||               O||
 -==================-
 
+; timer, rotation, open/closed
+
 >> FINISHED
 -==================-
 ||Done           /||
 ||Remove food    C||
 -==================-
 
+; rotation, open/closed, message
+
 >> POWER_SELECTION
 -==================-
 ||Set Power      -||
 ||1/2/3          C||
 -==================-
+
+; rotation, open/closed, message
+
 
 LEDS : All connected except second topmost
 if Open
@@ -164,3 +175,7 @@ else
     topmost led off
 
 lower 8 leds >> display power
+
+TIMER :
+>> for every second that passes we'll have to check for the turntable rotation
+

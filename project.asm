@@ -1,6 +1,19 @@
 .include "m2560def.inc"
 
+;
+; MODES
+;
+.def mode = r23 ;
+
+.equ ENTRY_MODE = 1 ;
+.equ RUNNING_MODE = 2 ;
+.equ PAUSE_MODE = 3 ;
+.equ FINISH_MODE = 4 ;
+.equ POWER_SELECTION_MODE = 5 ;
+
+;
 ; LCD 
+;
 .equ LCD_RS = 7
 .equ LCD_E = 6
 .equ LCD_RW = 5
@@ -8,8 +21,9 @@
 
 .def LCD_DISPLAY = r16 ; LCD display
 
-
-; KEYPAD .def and .equ
+;
+; KEYPAD
+;
 .def row = r20 ; current row number
 .def col = r17 ; current column number
 .def rmask = r18 ; mask for current row during scan
@@ -20,28 +34,41 @@
 .equ INITROWMASK = 0x10 ; scan from the top row
 .equ ROWMASK = 0xF0 ; for obtaining input from Port D
 
-; MODES
-.def mode = r23 ;
+.def key_pressed = r2 ; value for key inputted
 
-.equ ENTRY_MODE = 1;
-.equ RUNNING_MODE = 2;
-.equ PAUSE_MODE = 3;
-.equ FINISH_MODE = 4;
-.equ POWER_SELECTION_MODE = 5;
-
-; Other variables
-.def temp1 = r21
-.def temp2 = r22
-.def key_pressed = r2 ;
-.def past_rotate_direction = r3 ; 1 = clockwise && 2 = anti-clockwise
+;
+; MOTOR
+;
 .def spin_percentage = r8 ; 1 - 100%, 2 - 50%, 3 - 25%
-.def door_is_open = r9 ; closed by default
 
+;
+; TIMERS
+;
 .def ent_sec = r13 ; number of minutes entered
 .def ent_min = r14 ; number of seconds entered
-.def ent_count = r10
+.def ent_count = r10 ; number of inputs entered
 
+;
+; TURNTABLE
+;
+.def turntable_state = r11 ; Current state of the turntable
+.def past_rotate_direction = r3 ; 1 = clockwise && 2 = anti-clockwise
+
+.equ TRN_STATE_1 = 1 ; State = '-' 
+.equ TRN_STATE_2 = 2 ; State = '/'
+.equ TRN_STATE_3 = 3 ; State = '|'
+.equ TRN_STATE_4 = 4 ; State = '\'
+
+;
+; Other variables
+;
+.def temp1 = r21
+.def temp2 = r22
+.def door_is_open = r9 ; Current State of the door //  closed by default
+
+;
 ; Macros 
+;
 .macro callINT
 		cpi debounceFlag, 0
 		breq Debounced
