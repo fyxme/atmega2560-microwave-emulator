@@ -73,7 +73,7 @@ ENTRY MODE :
 RUNNING MODE :
     // set the timers to be equal to the input times from entry mode
     STARTROTATE:
-    // while timers != 0 :
+    // while timers > 0 :
         // display time every second
         // spin motor
         // if time_running == 5 seconds
@@ -93,7 +93,7 @@ RUNNING MODE :
 
 
 PAUSE MODE :
-    // pause the timer >> store the timer values
+    // pause the timer
     // while 1 :
         // if (door_is_open == false) :
             // if '*' input :
@@ -128,17 +128,17 @@ C or O needed bottom right at all times
 turntable to be displayed in the top right of the lcd at all times >> turntable ==  '-', '/', '|' or '\' 
 
 >> ENTRY
--==================-
-||00:01          -||
-||               C||
--==================-
+;-==================-
+;||00:01          -||
+;||               C||
+;-==================-
 
 ; timer, rotation, open/closed
 
 >> RUNNING
 -==================-
 ||00:01          |||
-||Cooking Food   C||
+||               C||
 -==================-
 
 ; timer, rotation, open/closed
@@ -179,3 +179,7 @@ lower 8 leds >> display power
 TIMER :
 >> for every second that passes we'll have to check for the turntable rotation
 
+TODO:
+>> finish display
+>> finish led
+>> add buttons

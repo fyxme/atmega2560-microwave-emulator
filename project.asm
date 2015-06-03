@@ -29,11 +29,12 @@
 .def rmask = r18 ; mask for current row during scan
 .def cmask = r19 ; mask for current column during scan
 
-.equ PORTLDIR = 0x0F ; PL7-4: input (cols), PL3-0, output (rows)
-.equ INITCOLMASK = 0xFE ; scan from the rightmost column,
-.equ INITROWMASK = 0x10 ; scan from the top row
-.equ ROWMASK = 0xF0 ; for obtaining input from Port D
+.equ PORTLDIR = 0xF0 ; PD7-4: output, PD3-0, input
+.equ INITCOLMASK = 0xEF ; scan from the rightmost column,
+.equ INITROWMASK = 0x01 ; scan from the top row
+.equ ROWMASK = 0x0F ; for obtaining input from Port D
 
+.def debounceFlag = r12
 .def key_pressed = r2 ; value for key inputted
 
 ;
@@ -46,7 +47,6 @@
 ;
 .def ent_sec = r13 ; number of minutes entered
 .def ent_min = r14 ; number of seconds entered
-.def ent_count = r10 ; number of inputs entered
 
 ;
 ; TURNTABLE
@@ -54,17 +54,20 @@
 .def turntable_state = r11 ; Current state of the turntable
 .def past_rotate_direction = r3 ; 1 = clockwise && 2 = anti-clockwise
 
-.equ TRN_STATE_1 = 1 ; State = '-' 
-.equ TRN_STATE_2 = 2 ; State = '/'
-.equ TRN_STATE_3 = 3 ; State = '|'
-.equ TRN_STATE_4 = 4 ; State = '\'
+.equ TRN_STATE_1 = 1 ; State = '-' ascii = 45
+.equ TRN_STATE_2 = 2 ; State = '/' ascii = 47
+.equ TRN_STATE_3 = 3 ; State = '|' ascii = 124
+.equ TRN_STATE_4 = 4 ; State = '\' ascii = 92
 
 ;
 ; Other variables
 ;
 .def temp1 = r21
 .def temp2 = r22
-.def door_is_open = r9 ; Current State of the door //  closed by default
+.def door = r9 ; Current State of the door //  closed by default
+
+.equ OPEN = 1
+.equ CLOSED = 0
 
 ;
 ; Macros 
@@ -101,6 +104,172 @@
 	cbi PORTA, @0
 .endmacro
 
+.macro do_lcd_data_reg
+	mov LCD_DISPLAY, @0
+	rcall lcd_data
+	rcall lcd_wait
+.endmacro
+
+; display multiple blank space
+.macro display_blank
+	push temp1
+	ldi temp1, @0
+	BLANK_LOOP:
+		cpi temp1, 0
+		breq END_BLANK_LOOP
+		do_lcd_data ' '
+		subi temp1, 1
+		rjmp BLANK_LOOP
+	END_BLANK_LOOP:
+	pop temp1
+.endmacro
+
+.macro display_second_line
+	; R/W and R/S are already 0.
+	do_lcd_command 0b10101000  ; Set DD address to 40 (start of second line).
+.endmacro
+
+; display turntable based on current turntable_state
+.macro display_turntable
+	push temp1
+	push temp2
+	mov temp1, turntable_state
+	
+	cpi temp1, TRN_STATE_1
+	breq DISP_T_1
+
+	cpi temp1, TRN_STATE_2
+	breq DISP_T_2
+
+	cpi temp1, TRN_STATE_3
+	breq DISP_T_3
+
+	cpi temp1, TRN_STATE_4
+	breq DISP_T_4
+
+	DISP_T_1:
+		do_lcd_data 45  ; State = '-' ascii = 45
+		rjmp END_DISP_TURN
+
+	DISP_T_2:
+		do_lcd_data 47  ; State = '/' ascii = 47
+		rjmp END_DISP_TURN
+
+	DISP_T_3:
+		do_lcd_data 124 ; State = '|' ascii = 124
+		rjmp END_DISP_TURN
+
+	DISP_T_4:
+		do_lcd_data 92  ; State = '\' ascii = 92
+
+	END_DISP_TURN:
+	pop temp1
+	pop temp2
+.endmacro
+
+.macro convert_seconds_to_minutes
+	; check if max minutes >> if it is max -> useless to convert
+	mov temp1, ent_min
+	cpi temp1, 99 ; 99 = max number of minutes
+	breq END_CSTM
+	; if seconds < 60 dont do anything
+	mov temp1, ent_sec
+	cpi temp1, 60
+	brlt END_CSTM
+	
+	; remove 60 seconds
+	subi temp1, 60
+	mov ent_sec, temp1
+	; add 1 minute
+	ldi temp1, 1
+	add ent_min, temp1
+	
+	END_CSTM:
+.endmacro
+
+; display lcd data based on a 2 digits number
+.macro display_lcd_data_reg
+	push temp1
+	push temp2
+	; count ten's in reg
+	mov temp1, @0 ; temp1 holds num of ent minutes
+	ldi temp2, 0  ; temp2 holds num of tens of minutes
+	TENS_LOOP:
+		cpi temp1, 10
+		brlt END_TENS_LOOP
+
+		subi temp1, 10 ; remove 10 minutes	
+		subi temp2, -1 ; add 1 to tens count
+
+		rjmp TENS_LOOP
+	END_TENS_LOOP:
+
+	; get the ascii value for temp2 and temp1
+	subi temp1, -'0'
+	subi temp2, -'0'
+
+	; display ten's
+	do_lcd_data_reg temp2
+	; display units
+	do_lcd_data_reg temp1
+	pop temp1
+	pop temp2
+.endmacro
+
+.macro display_door_state
+	push temp1
+	mov temp1, door
+	cpi temp1, OPEN
+	breq DISP_DOOR_OPEN
+	; door is closed
+	do_lcd_data 'C'
+	rjmp DISP_DOOR_END
+	DISP_DOOR_OPEN :
+		do_lcd_data 'O'
+	DISP_DOOR_END:
+	pop temp1
+.endmacro
+
+;
+; Init variables : door and turntable not present 
+; since we want to reuse this macro when the # key is pressed
+;
+.macro initialise_variables
+	push temp1
+	ldi temp1, 0
+	mov ent_sec, temp1
+	mov ent_min, temp1
+	ldi temp1, ENTRY_MODE ; initialise mode // initial mode = 1 aka ENTRY_MODE
+	mov mode, temp1
+	ldi temp1, 1
+	mov spin_percentage, temp1 ; 100 % speed at begining
+	pop temp1
+.endmacro
+
+
+;
+; Adds as many seconds as possible based on argument
+;
+.macro add_max_sec
+	push temp1
+	mov temp1, ent_sec
+	ldi temp2, @0 ; max sec to add // used as counter
+
+	ADD_MAX_SEC_LOOP:
+		cpi temp2, 1 ; counter is done
+		brlt END_ADD_MAX_SEC_LOOP
+		cpi temp1, 99 ; check if max number of seconds
+		brge END_ADD_MAX_SEC_LOOP
+		inc temp1 ; add 1 to number of seconds
+		subi temp2, 1 ; decrease count by 1
+		rjmp ADD_MAX_SEC_LOOP
+	END_ADD_MAX_SEC_LOOP:
+
+	mov ent_sec, temp1
+	
+	pop temp1
+.endmacro
+
 .dseg
 ;	MinuteCounter: ; total number of minutes
 ;		.byte 2
@@ -112,31 +281,22 @@
 ;		.byte 2
 
 .cseg
-
-
 BEGIN:
-	ldi mode, ENTRY_MODE; initialise mode // initial mode = 1 aka ENTRY_MODE
-
-
-MAIN:
-	; KEYPAD RESET
+	; reset keypad
 	ldi temp1, low(RAMEND) ; initialize the stack
 	out SPL, temp1
 	ldi temp1, high(RAMEND)
 	out SPH, temp1
-	ldi temp1, PORTLDIR ; PL7:4/PL3:0, out/in
+	ldi temp1, PORTLDIR ; PA7:4/PA3:0, out/in
 	sts DDRL, temp1
 	ser temp1 ; PORTC is output
 	out DDRC, temp1
-	clr temp1
-	out PORTC, temp1
-
-	; LCD RESET
+	
+	;reset lcd
 	ldi LCD_DISPLAY, low(RAMEND)
-	out SPL, LCD_DISPLAY
+	;out SPL, LCD_DISPLAY
 	ldi LCD_DISPLAY, high(RAMEND)
-	out SPH, LCD_DISPLAY
-
+	;out SPH, LCD_DISPLAY
 	ser LCD_DISPLAY
 	out DDRF, LCD_DISPLAY
 	out DDRA, LCD_DISPLAY
@@ -144,64 +304,41 @@ MAIN:
 	out PORTF, LCD_DISPLAY
 	out PORTA, LCD_DISPLAY
 
+	ldi temp1, CLOSED ; door starts as close
+	mov door, temp1
+
+	ldi temp1, TRN_STATE_1 ; initial turntable state
+	mov turntable_state, temp1
+
+INIT_VAR:
+	initialise_variables 
+
+BEFORE:
 	; Display stuff according to mode
 	rcall DISPLAY_FROM_MODE
 
-	; Display power on LEDs
+	; Display power on LEDs and open/closed on topmost
+	rcall LED_DISPLAY
+
 
 	; Make motor run if necessary
 		; check if in correct mode
 			; if so run motor according to power
 			; otherwise do nothing
 
-;
-; Function that displays whatever is needed according to the given mode 
-;
-DISPLAY_FROM_MODE:
-	cpi mode, ENTRY_MODE
-	breq DISPLAY_ENTRY_MODE
+DEBOUNCE_BUTTON_CLEAR:
+	clr debounceFlag
 
-	cpi mode, RUNNING_MODE
-	breq DISPLAY_RUNNING_MODE
+MAIN:
 
-	cpi mode, PAUSE_MODE
-	breq DISPLAY_PAUSE_MODE
-
-	cpi mode, FINISH_MODE
-	breq DISPLAY_FINISH_MODE
-
-	cpi mode, POWER_SELECTION_MODE
-	breq DISPLAY_POWER_SELECION_MODE
-
-	DISPLAY_ENTRY_MODE:
-
-
-	DISPLAY_RUNNING_MODE:
-
-
-	DISPLAY_PAUSE_MODE:
-
-
-	DISPLAY_FINSH_MODE:
-
-
-	DISPLAY_POWER_SELECTION_MODE:
-
-DISPLAY_OVER:
-	ret
-
-START_MAIN_LOOP:
 	ldi cmask, INITCOLMASK ; initial column mask
 	clr col ; initial column
 
-	; get input from buttons
-	; display LED
-	; display screen
-	; timer
+	clr key_pressed
 
 	colloop:
 		cpi col, 4
-		breq main ; If all keys are scanned, repeat.
+		breq DEBOUNCE_BUTTON_CLEAR ; If all keys are scanned, repeat.
 		sts PORTL, cmask ; Otherwise, scan a column.
 		ldi temp1, 0xFF ; Slow down the scan operation.
 
@@ -220,17 +357,24 @@ START_MAIN_LOOP:
 		breq nextcol ; the row scan is over.
 		mov temp2, temp1
 		and temp2, rmask ; check un-masked bit
+		brne continueRow
+		mov temp1, debounceFlag
+		cpi temp1, 0
 		breq convert ; if bit is clear, the key is pressed
+		jmp main ; so we don't read to col 4 and reset debounceFlag
+
+	continueRow:
 		inc row ; else move to the next row
 		lsl rmask
 		jmp rowloop
-
 	nextcol: ; if row scan is over
 		lsl cmask
 		inc col ; increase column value
 		jmp colloop ; go to the next column
 
 	convert:
+		ldi temp1, 1 ; a button is not yet released
+		mov debounceFlag, temp1
 		cpi col, 3 ; If the pressed key is in col.3
 		breq letters ; we have a letter
 		; If the key is not in col.3 and
@@ -242,8 +386,8 @@ START_MAIN_LOOP:
 		add temp1, row
 		add temp1, col ; key_pressed = row*3 + col
 		subi temp1, -'1' ; Add the value of character ‘1’
-
-		subi temp1, '0' ; transfer ASCII value to integer value
+	  	subi temp1, '0' ; transfer ASCII value to integer value
+		
 		mov key_pressed, temp1
 
 	numbers:
@@ -302,6 +446,10 @@ START_MAIN_LOOP:
 		cpi mode, RUNNING_MODE
 		breq HASH_RUNNING_JUMP
 
+		; check if PAUSE_MODE
+		cpi mode, PAUSE_MODE
+		breq HASH_PAUSE_JUMP
+
 		; check if FINISH_MODE
 		cpi mode, FINISH_MODE
 		breq HASH_FINISH_JUMP
@@ -316,6 +464,8 @@ START_MAIN_LOOP:
 			jmp HASH_ENTRY
 		HASH_RUNNING_JUMP:
 			jmp HASH_RUNNING
+		HASH_PAUSE_JUMP:
+			jmp HASH_PAUSE
 		HASH_FINISH_JUMP:
 			jmp HASH_FINISH
 		POWER_SELECTION_CANCEL_JUMP:
@@ -333,13 +483,9 @@ START_MAIN_LOOP:
 		cpi mode, RUNNING_MODE
 		breq STAR_RUNNING_JUMP
 
-		; check if PAUSE_MODE // letters not used in PAUSE MODE
+		; check if PAUSE_MODE 
 		cpi mode, PAUSE_MODE
 		breq STAR_PAUSE_JUMP
-
-		; check if FINISH_MODE // letters not used in FINISH MODE
-		cpi mode, FINISH_MODE
-		breq STAR_FINISH_JUMP
 
 		jmp main ; not used for other modes
 
@@ -349,8 +495,6 @@ START_MAIN_LOOP:
 			jmp STAR_RUNNING
 		STAR_PAUSE_JUMP:
 			jmp STAR_PAUSE
-		STAR_FINISH_JUMP:
-			jmp STAR_FINISH
 
 	zero:
 		ldi temp1, '0' ; Set to zero
@@ -361,32 +505,165 @@ START_MAIN_LOOP:
 		cpi mode, ENTRY_MODE
 		breq ZERO_ENTRY_JUMP
 
-		; check if RUNNING_MODE 
-		cpi mode, RUNNING_MODE
-		breq NUMBER_RUNNING_JUMP
-
-		; check if PAUSE_MODE // letters not used in PAUSE MODE
-		cpi mode, PAUSE_MODE
-		breq NUMBER_PAUSE_JUMP
-
-		; check if FINISH_MODE // letters not used in FINISH MODE
-		cpi mode, FINISH_MODE
-		breq NUMBER_FINISH_JUMP
-
 		jmp main ; not used for other modes
 
 		ZERO_ENTRY_JUMP:
 			jmp NUMBER_ENTRY
-		NUMBER_RUNNING_JUMP:
-			jmp NUMBER_RUNNING
-		NUMBER_PAUSE_JUMP:
-			jmp NUMBER_PAUSE
-		NUMBER_FINISH_JUMP:
-			jmp NUMBER_FINISH
 
 	convert_end:
 		; DO SOMETHING WITH KEY PRESSED HERE
-		jmp main ; Restart main loop
+		jmp DEBOUNCE_BUTTON_CLEAR ; Restart main loop
+
+;
+; Displays the required amount of LEDS
+;
+LED_DISPLAY:
+	
+	push temp1
+	mov temp1, spin_percentage
+   
+    ldi YL, 0b11111111 
+    cpi temp1, 1 ; 100 % // 1
+    breq LED_DISPLAY_END
+
+    ldi YL, 0b00001111 ; 50%
+    cpi temp1, 2 ; 50 % // 2
+    breq LED_DISPLAY_END
+
+    ldi YL, 0b00000011 ;  25% // 3
+
+
+LED_DISPLAY_END:
+    out PORTC, YL ; output motor percentage to led
+
+    ; TODO : Output door is open or closed
+
+    pop temp1
+    ret
+
+;
+; Displays whatever is needed according to the given mode 
+;
+DISPLAY_FROM_MODE:
+	
+	; reset the display
+	rcall RESET_DISPLAY
+
+	cpi mode, FINISH_MODE
+	breq DISPLAY_FINISH_MODE_JUMP
+
+	cpi mode, POWER_SELECTION_MODE
+	breq DISPLAY_POWER_SELECTION_MODE_JUMP
+
+	jmp DISPLAY_ENTRY_RUNNING_PAUSE_MODE
+
+	DISPLAY_FINISH_MODE_JUMP:
+		jmp DISPLAY_FINISH_MODE
+
+	DISPLAY_POWER_SELECTION_MODE_JUMP:
+		jmp DISPLAY_POWER_SELECTION_MODE
+
+	DISPLAY_ENTRY_RUNNING_PAUSE_MODE:
+		;-==================-
+		;||00:01          -||
+		;||               C||
+		;-==================-
+
+		display_lcd_data_reg ent_min
+		do_lcd_data ':'
+		display_lcd_data_reg ent_sec
+
+		display_blank 10
+
+		display_turntable
+
+		display_second_line
+
+		mov temp1, mode
+		ldi temp2, 'A'
+		add temp1, temp2
+		subi temp1, 1
+		do_lcd_data_reg temp1 ; DEBUGGING // display the current mode
+
+		display_blank 14 ; put back to 15 when done
+
+		display_door_state
+
+		jmp DISPLAY_OVER
+
+	DISPLAY_FINISH_MODE:
+		;-==================-
+		;||Done           /||
+		;||Remove food    C||
+		;-==================-
+
+		do_lcd_data 'D'
+		do_lcd_data 'o'
+		do_lcd_data 'n'
+		do_lcd_data 'e'
+
+		display_blank 11
+
+		display_turntable
+
+		display_second_line
+
+		do_lcd_data 'R'
+		do_lcd_data 'e'
+		do_lcd_data 'm'
+		do_lcd_data 'o'
+		do_lcd_data 'v'
+		do_lcd_data 'e'
+		do_lcd_data ' '
+		do_lcd_data 'F'
+		do_lcd_data 'o'
+		do_lcd_data 'o'
+		do_lcd_data 'd'
+
+		display_blank 4
+
+		display_door_state
+
+		jmp DISPLAY_OVER
+
+	DISPLAY_POWER_SELECTION_MODE:
+		;-==================-
+		;||Set Power      -||
+		;||1/2/3          C||
+		;-==================-
+		
+		do_lcd_data 'S'
+		do_lcd_data 'e'
+		do_lcd_data 't'
+		do_lcd_data ' '
+		do_lcd_data 'P'
+		do_lcd_data 'o'
+		do_lcd_data 'w'
+		do_lcd_data 'e'
+		do_lcd_data 'r'
+
+		display_blank 6
+
+		display_turntable
+
+		display_second_line
+
+		do_lcd_data '1'
+		do_lcd_data '/'
+		do_lcd_data '2'
+		do_lcd_data '/'
+		do_lcd_data '3'
+
+		display_blank 10
+
+		display_door_state
+
+		jmp DISPLAY_OVER
+
+
+DISPLAY_OVER:
+	ret
+
 
 ENTRY :
 	LETTERS_ENTRY :
@@ -399,10 +676,8 @@ ENTRY :
 			jmp SWITCH_MODE_PWRLVL
 
 	HASH_ENTRY : 
-		; clr entered time
-		clr ent_sec 
-		clr ent_min
-		jmp main
+		; clr all variables except door open/closed and turntable
+		jmp INIT_VAR
 
 	STAR_ENTRY :
 			mov temp1, ent_sec
@@ -418,80 +693,189 @@ ENTRY :
 			jmp SWITCH_MODE_RUNNING
 
 	NUMBER_ENTRY :
-	mov temp1, ent_count
-	cpi temp1, 0
-	brne FIRST_NUMBER_INPUT_END
+	push temp1
+	push temp2
 
-	; first number input can't be 0
-	FIRST_NUMBER_INPUT :
-		mov temp1, key_pressed
-		cpi temp1, 0
-		breq INVALID_INPUT
-	FIRST_NUMBER_INPUT_END :
-
-	; if 4 numbers have been inputted go back to main
-	mov temp1, ent_count
-	cpi temp1, 4
-	breq INVALID_INPUT
-
-	; multiply number of minutes by 10
-	ldi temp1, 10
-	mul ent_min, temp1
+	; take input until a number reaches 10s of minutes
+	mov temp1, ent_min
+	cpi temp1, 10
+	brge INVALID_INPUT
 
 	; count number of 10s of seconds
+	ldi temp1, 0 ; temp1 holds the number of tens seconds
+	mov temp2, ent_sec ; temp2 holds the number of seconds remainings t2 < 10
+
 	COUNT_SEC:
-		ldi temp1, 0
-		mov temp2, ent_sec
 		cpi temp2, 10
 		brlt END_COUNT_SEC
-		inc temp1
+		subi temp1, -1 ; increase the numbers of tens
+		subi temp2, 10 ; substract 10 to the number of seconds
 		jmp COUNT_SEC
 	END_COUNT_SEC:
-	; temp1 holds the number of seconds
 
-	; add the count to number of minutes
-	add ent_min, temp1
+	clr ent_sec ; clear the number of seconds so we don't add over past values.
 
-	; multiply the number of seconds by 10
-	ldi temp1, 10
-	mul ent_sec, temp1
+	add ent_sec, temp2 ; set to number of seconds remaining // 00:0a where a is the number of seconds
 
-	; add the input
-	add ent_sec, key_pressed
+	ldi temp2, 10
 
-	; increase entered count
-	ldi temp1, 1
-	add ent_count, temp1
+	mul ent_sec, temp2 ; multiply by 10 // 00:a0 where a is the number of seconds
+
+	mov ent_sec, r0 ; set ent_sec to the result of the multiplication
+
+	mul ent_min, temp2 ; multiply number of minutes so we can shift the 10s of seconds up
+
+	mov ent_min, r0 ; set ent_sec to the result of the multiplication
+
+	add ent_min, temp1 ; shift number of 10s of seconds to units of minutes // SS:S0 -- S represents a value that is now set
+
+	add ent_sec, key_pressed ; add the value of the key pressed to the count // SS:Sa -- a is where the value of the key pressed is put
+
+	pop temp1
+	pop temp2
 
 INVALID_INPUT:
-	jmp main
+	jmp BEFORE
 
 RUNNING :
 	LETTERS_RUNNING :
+ 	mov temp1, key_pressed
 
+ 	; // if 'C' input :
+ 	;      // try add 30 seconds to timer >> time cannot be more than 99:59
+ 	cpi temp1, 'C'
+ 	breq ADD_SECONDS_TO_TIMER
 
+ 	; // elsif 'D' input :
+ 	;      // try remove 30 seconds to timer 
+ 	cpi temp1, 'D'
+ 	breq REMOVE_SECONDS_FROM_TIMER
 
-	jmp main
+ 	jmp main ; all other input ignored
 
+ 	ADD_SECONDS_TO_TIMER :
+ 	; convert seconds to minutes
+ 		; this is to account for user entry with seconds over 60
+ 	convert_seconds_to_minutes
+
+ 	; check if seconds < 30
+ 	mov temp1, ent_sec
+ 	cpi temp1, 30
+ 	brlt DO_ADD_SEC
+
+ 	DO_REMOVE_SEC:
+ 		; check if max_minutes
+ 		mov temp1, ent_min
+ 		cpi temp1, 99
+ 		breq DO_ADD_SEC
+ 			; if not max
+ 				; add 1 minute
+ 				; do ent_sec - 30
+ 		ldi temp1, 1
+ 		add ent_min, temp1
+ 		mov temp1, ent_sec
+ 		subi temp1, 30
+ 		mov ent_sec, temp1
+ 	END_DO_REMOVE_SEC:
+ 		jmp BEFORE
+
+ 	DO_ADD_SEC:
+ 		; check if max minutes
+ 		mov temp1, ent_min
+ 		cpi temp1, 99
+ 		brne DO_ADD_SEC_NOT_MAX
+
+ 		; add a max of 30 seconds
+ 		add_max_sec 30
+
+ 		jmp BEFORE
+		; else
+			; do ent_sec + 30
+	DO_ADD_SEC_NOT_MAX:
+		ldi temp1, 30
+		add ent_sec, temp1
+ 		jmp BEFORE
+
+ 	REMOVE_SECONDS_FROM_TIMER :
+ 		; convert seconds to minutes
+ 		; this is to account for user entry with seconds over 60
+ 		convert_seconds_to_minutes
+
+ 		mov temp1, ent_min
+ 		cpi temp1, 0 ; 0 minutes
+ 		breq RSFT_MAX_SEC
+
+ 		; check if ent_sec >= 30
+ 		mov temp1, ent_sec
+ 		cpi temp1, 30
+ 		brge RSFT_REMOVE_SEC
+
+ 		; remove 1 minute
+ 		mov temp1, ent_min
+ 		subi temp1, 1
+ 		mov ent_min, temp1
+
+ 		; add 60 sec to sec counter
+ 		ldi temp1, 60
+ 		add ent_sec, temp1
+
+ 		; remove 30 seconds
+ 		RSFT_REMOVE_SEC:
+
+ 		mov temp1, ent_sec
+ 		subi temp1, 30 
+ 		mov ent_sec, temp1
+
+ 		jmp BEFORE
+
+ 		RSFT_MAX_SEC:
+
+ 		remove_max_sec 30 ; remove a maximum of 30 seconds if possible
+
+ 		jmp BEFORE
+
+	HASH_RUNNING :
+		; // elsif '#' input :
+		;    // goto pause
+		jmp SWITCH_MODE_PAUSE
+
+	STAR_RUNNING :
+		; // elsif '*' input :
+    	;   // add 1 minute
+    	mov temp1, ent_min
+    	cpi temp1, 99 ; check if max number of minutes
+    	breq END_STAR_RUNNING ; if so dont add the minute
+    	inc temp1
+    	mov ent_min, temp1
+    END_STAR_RUNNING:
+		jmp BEFORE
 
 
 PAUSE : 
-	LETTERS_PAUSE :
 
+	; TODO : Door pause
+	; check if door is open before you check the timer or even input
+	; if door is open
+		; if not in pause mode: 
+			; go to pause mode
+	;;;; This would mean we don't require to change anything else
 
-	jmp main
+	HASH_PAUSE :
+		; cancel time
+		; return to entry mode
+		; aka. reset all variables except door
+		jmp INIT_VAR
 
-
-
+	STAR_PAUSE :
+		; return to running mode
+		jmp SWITCH_MODE_RUNNING
 
 
 FINISH :
-	LETTERS_FINISH :
-
-
-
-	jmp main
-
+	HASH_FINISH :
+	; return to entry mode
+	; aka. reset all variables except door
+	jmp INIT_VAR
 
 
 POWER_SELECTION : 
@@ -503,64 +887,56 @@ POWER_SELECTION :
 		breq ADJUST_POWER_50
 		cpi temp1, 3 ; check if 3 inputted // 25% -- 2 LEDs Lit
 		breq ADJUST_POWER_25
-		jmp main
 
 	POWER_SELECTION_CANCEL :
-
-		jmp main
+		jmp END_POWER_SELECT
 
 	ADJUST_POWER_100 : 
 		; adjust spin_percentage to 1
-		jmp main
-
-
+		ldi temp1, 1
+		jmp END_ADJUST
 	ADJUST_POWER_50 :
 		; adjust spin_percentage to 2
-		jmp main
-
+		ldi temp1, 2
+		jmp END_ADJUST
 	ADJUST_POWER_25 :
 		; adjust spin_percentage to 3
-		jmp main	
+		ldi temp1, 3
+	END_ADJUST:
+		mov spin_percentage, temp1
+	END_POWER_SELECT:
+		; change Mode back to entry
+		jmp SWITCH_MODE_ENTRY
 
-
-
+;
+; SWITCH between all modes 
+;
 SWITCH_MODE : 
 	SWITCH_MODE_PWRLVL :
 		ldi mode, POWER_SELECTION_MODE
-		jmp main
+		jmp BEFORE
 
 	SWITCH_MODE_ENTRY :
 		ldi mode, ENTRY_MODE
-		jmp main
+		jmp BEFORE
 
 	SWITCH_MODE_PAUSE :
 		ldi mode, PAUSE_MODE
-		jmp main
+		jmp BEFORE
 
 	SWITCH_MODE_RUNNING :
 		ldi mode, RUNNING_MODE
-		jmp main
+		jmp BEFORE
 
 	SWITCH_MODE_FINISH :
 		ldi mode, FINISH_MODE
-		jmp main
+		jmp BEFORE
 
 
 ;
 ; Reset dipslay
 ;
-RESET_DIPSLAY:
-	ldi r16, low(RAMEND)
-	out SPL, r16
-	ldi r16, high(RAMEND)
-	out SPH, r16
-
-	ser r16
-	out DDRF, r16
-	out DDRA, r16
-	clr r16
-	out PORTF, r16
-	out PORTA, r16
+RESET_DISPLAY:
 
 	; clear display
 	do_lcd_command 0b00111000 ; 2x5x7
@@ -575,10 +951,6 @@ RESET_DIPSLAY:
 	do_lcd_command 0b00001110 ; Cursor on, bar, no blink
 	ret
 
-GO_TO_SECOND_LINE:
-	; R/W and R/S are already 0.
-	do_lcd_command 0b10101000  ; Set DD address to 40 (start of second line).
-	ret
 ;
 ; Send a command to the LCD (LCD_DISPLAY)
 ;
@@ -643,6 +1015,3 @@ sleep_5ms:
 	rcall sleep_1ms
 	rcall sleep_1ms
 	ret
-
-HALT : ; possibly not needed ? 
-	jmp HALT
