@@ -270,15 +270,38 @@
 	pop temp1
 .endmacro
 
+;
+; Remove as many seconds as possible based on argument
+;
+.macro remove_max_sec
+	push temp1
+	push temp2
+	mov temp1, ent_sec ; current number of seconds // 59
+	ldi temp2, @0 ; counter
+	REMOVE_MAX_SEC_LOOP:
+		cpi temp2, 0 ; counter is done // counter == 0 >> stop
+		breq END_REMOVE_MAX_SEC_LOOP
+		cpi temp1, 1 ; check if min number of seconds // current == 1 sec >> stop
+		breq END_REMOVE_MAX_SEC_LOOP
+		subi temp1, 1 ; reduce by 1 sec // current--
+		subi temp2, 1 ; decrease count by 1 // count--
+		rjmp REMOVE_MAX_SEC_LOOP
+	END_REMOVE_MAX_SEC_LOOP:
+	mov ent_sec, temp1
+	pop temp1
+	pop temp2
+.endmacro
+
+
+;
+; Timer macros
+;
+
 .dseg
-;	MinuteCounter: ; total number of minutes
-;		.byte 2
-;	SecondCounter:	; total number of seconds
-;		.byte 2
-;	TempCounter:	; count to 1 second
-;		.byte 2
-;	DebounceCounter:; count to 0.1 second
-;		.byte 2
+    SecondCounter:
+    .byte 2
+    MiniCounter:
+    .byte 2
 
 .cseg
 BEGIN:
@@ -585,7 +608,7 @@ DISPLAY_FROM_MODE:
 		subi temp1, 1
 		do_lcd_data_reg temp1 ; DEBUGGING // display the current mode
 
-		display_blank 14 ; put back to 15 when done
+		display_blank 14 ; put back to 15 when done DEBUGGING
 
 		display_door_state
 
@@ -702,8 +725,8 @@ ENTRY :
 	brge INVALID_INPUT
 
 	; count number of 10s of seconds
-	ldi temp1, 0 ; temp1 holds the number of tens seconds
-	mov temp2, ent_sec ; temp2 holds the number of seconds remainings t2 < 10
+	ldi temp1, 0 		; temp1 holds the number of tens seconds
+	mov temp2, ent_sec  ; temp2 holds the number of seconds remainings t2 < 10
 
 	COUNT_SEC:
 		cpi temp2, 10
@@ -932,6 +955,48 @@ SWITCH_MODE :
 		ldi mode, FINISH_MODE
 		jmp BEFORE
 
+
+OneSecond:
+;Code that executes once every second goes here
+	mov temp1, ent_sec
+	cpi temp1, 0
+	breq backToSixty
+	CountDownSec ent_sec ; countdown the number of seconds
+	Refresh:
+	bigDelay 960
+	rcall RESET_DISPLAY
+	jmp TimerEnd
+	BackToSixty:
+		CountDownMin ent_min ; go down a minute
+		ldi temp1, 60
+		mov ent_sec, temp1 ; sec number of seconds to 60
+		jmp OneSecond
+
+OneSecond_JUMP:
+	jmp OneSecond
+TimerOverflow:   ;timer overflow interrupt comes here
+	push temp1
+	in temp1, SREG
+	push temp1
+	push Yl
+	push Yh
+	
+	ldi Yh, high(TimerCounter)
+	ldi Yl, low(TimerCounter)
+	ld temp1, Y
+	cpi temp1, 61
+	breq OneSecond_JUMP
+	inc temp1
+	st Y, temp1
+	
+
+	TimerEnd:
+		pop Yh
+		pop Yl
+		pop temp1
+		out SREG, temp1
+		pop temp1
+		reti
 
 ;
 ; Reset dipslay
