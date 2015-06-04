@@ -52,12 +52,16 @@
 ; TURNTABLE
 ;
 .def turntable_state = r11 ; Current state of the turntable
-.def past_rotate_direction = r3 ; 1 = clockwise && 2 = anti-clockwise
+.def curr_rotate_direction = r3 ; 1 = clockwise && 2 = anti-clockwise
+.def rotate_time_count = r10 ; number of seconds for the turnable >> when this reaches 250 turntable rotates
 
 .equ TRN_STATE_1 = 1 ; State = '-' ascii = 45
 .equ TRN_STATE_2 = 2 ; State = '/' ascii = 47
 .equ TRN_STATE_3 = 3 ; State = '|' ascii = 124
 .equ TRN_STATE_4 = 4 ; State = '\' ascii = 92
+
+.equ CLOCKWISE = 0
+.equ COUNTER_CLOCKWISE = 1
 
 ;
 ; Other variables
@@ -69,23 +73,28 @@
 .equ OPEN = 1
 .equ CLOSED = 0
 
+.equ TRUE = 1
+.equ FALSE = 0
+
 ;
 ; Macros 
 ;
 .macro callINT
-		cpi debounceFlag, 0
+		mov temp1, debounceFlag
+		cpi temp1, 0
 		breq Debounced
 		reti
 	Debounced:
-		inc debounceFlag
+		ldi temp1, 1
+		add debounceFlag, temp1
 		clear debounceCounter
 .endmacro
 .macro clear
 		ldi YL, low(@0)
 		ldi YH, high(@0)
-		clr temp
-		st Y+, temp
-		st Y, temp
+		clr temp1
+		st Y+, temp1
+		st Y, temp1
 .endmacro
 .macro do_lcd_command
 	ldi LCD_DISPLAY, @0
@@ -124,6 +133,21 @@
 	pop temp1
 .endmacro
 
+.macro no_entered_input
+	mov temp1, ent_sec
+	cpi temp1, 0
+	brne RET_FALSE
+	mov temp1, ent_min
+	cpi temp1, 0
+	brne RET_FALSE
+
+	ldi @0, TRUE ; return true
+	rjmp END_NO_ENTERED_INPUT
+	RET_FALSE:
+	ldi @0, FALSE ; return false
+	END_NO_ENTERED_INPUT:
+.endmacro
+
 .macro display_second_line
 	; R/W and R/S are already 0.
 	do_lcd_command 0b10101000  ; Set DD address to 40 (start of second line).
@@ -160,7 +184,11 @@
 		rjmp END_DISP_TURN
 
 	DISP_T_4:
-		do_lcd_data 92  ; State = '\' ascii = 92
+		; ldi temp1, 92
+		; do_lcd_data_reg  ; State = '\' ascii = 92
+		; backslash ascii not supported therefore use our
+		; own created backslash which has been saved in 0
+		do_lcd_data 0
 
 	END_DISP_TURN:
 	pop temp1
@@ -246,7 +274,6 @@
 	pop temp1
 .endmacro
 
-
 ;
 ; Adds as many seconds as possible based on argument
 ;
@@ -292,19 +319,150 @@
 	pop temp2
 .endmacro
 
+.macro rotate_turntable
+	push temp1
+	; every 250 ms
+	; rotate turntable
+	mov temp1, rotate_time_count
+   	cpi temp1, 3 ; 3 s
+   	brne NOT_TIME_TO_ROTATE
+
+   	clr rotate_time_count
+
+   	; check current rotation state
+   	mov temp1, curr_rotate_direction
+   	cpi temp1, CLOCKWISE
+   	breq ROTATE_CLOCK
+
+   	mov temp1, turntable_state
+   	inc temp1
+
+   	; check if < 5 // highest possible state is equal to 4
+   	cpi temp1, 5
+   	brlt END_ROTATE
+   	; went over 4 therefore go back to 1
+   	ldi temp1, 1
+   	rjmp END_ROTATE
+
+   	ROTATE_CLOCK:
+	mov temp1, turntable_state
+   	dec temp1
+   	; check if < 1 // lowest possible state
+   	cpi temp1, TRN_STATE_1
+   	brge END_ROTATE
+   	; temp1 equal to 0
+   	; go to 4 // max state
+   	ldi temp1, 4
+   	END_ROTATE:
+   	mov turntable_state, temp1
+   	NOT_TIME_TO_ROTATE:
+   	ldi temp1, 1
+   	add rotate_time_count, temp1; inc rotate_time_counter
+    pop temp1
+.endmacro
 
 ;
 ; Timer macros
 ;
+.macro CountDownSec
+	;Decreases the stored time by 1 second
+	push temp1
+	push temp2
+	mov temp1, @0
+	cpi temp1, 0 ;Check if time is ZERO
+	brne DecSeconds
+
+	rjmp CountDownEnd
+
+	DecSeconds:
+		subi temp1, 1
+		rjmp CountDownEnd
+	CountDownEnd:
+		mov @0, temp1
+		pop temp2
+		pop temp1
+.endmacro		
+.macro CountDownMin
+	;Decreases the stored time by 1 min
+	push temp1
+	push temp2
+	
+	mov temp1, @0
+	cpi temp1, 0 ;Check if time is ZERO
+	brne DecSeconds
+
+	ldi mode, FINISH_MODE ; Go into 'finished' mode if time is zero
+	rjmp CountDownEnd
+
+	DecSeconds:
+		subi temp1, 1
+		rjmp CountDownEnd
+	CountDownEnd:
+		mov @0, temp1
+		pop temp2
+		pop temp1
+.endmacro	
+.macro delay2 ; ~@0 us - micro seconds
+    push temp1
+    push temp2
+    in temp1, SREG
+    push temp1
+
+    ldi temp1, low(@0 << 1)
+    ldi temp2, high(@0 << 1)
+
+delayLoop:
+	subi temp1, 1
+	sbci temp2, 0
+	nop
+    nop
+    nop
+    nop
+	brne delayLoop
+
+    pop temp1
+    out SREG, temp1
+    pop temp2
+    pop temp1
+.endmacro
+.macro bigDelay ; ~@0 ms - miliseconds
+    push temp1
+    push temp2
+    in temp1, SREG
+    push temp1
+
+    ldi temp1, low(@0)
+    ldi temp2, high(@0)
+
+bigDelayLoop:
+	subi temp1, 1
+	sbci temp2, 0
+    delay2 1000 ; ~1 ms
+	brne bigDelayLoop
+
+    pop temp1
+    out SREG, temp1
+    pop temp2
+    pop temp1
+.endmacro
 
 .dseg
-    SecondCounter:
-    .byte 2
-    MiniCounter:
-    .byte 2
+TimerCounter:
+	.byte 1
+DebounceCounter: ; count to 0.1 second
+	.byte 2
 
 .cseg
-BEGIN:
+	.org 0x0000
+		jmp RESET
+	.org INT0addr
+		jmp EXT_INT0
+	.org INT1addr
+		jmp EXT_INT1
+	.org OVF0addr
+		jmp TimerOverflow
+
+RESET:
 	; reset keypad
 	ldi temp1, low(RAMEND) ; initialize the stack
 	out SPL, temp1
@@ -312,14 +470,17 @@ BEGIN:
 	out SPH, temp1
 	ldi temp1, PORTLDIR ; PA7:4/PA3:0, out/in
 	sts DDRL, temp1
-	ser temp1 ; PORTC is output
+
+	; Reset LEDs
+	ser temp1
 	out DDRC, temp1
+	out DDRB, temp1
+	clr temp1
+	out PORTB, temp1
 	
-	;reset lcd
+	; reset lcd
 	ldi LCD_DISPLAY, low(RAMEND)
-	;out SPL, LCD_DISPLAY
 	ldi LCD_DISPLAY, high(RAMEND)
-	;out SPH, LCD_DISPLAY
 	ser LCD_DISPLAY
 	out DDRF, LCD_DISPLAY
 	out DDRA, LCD_DISPLAY
@@ -333,8 +494,41 @@ BEGIN:
 	ldi temp1, TRN_STATE_1 ; initial turntable state
 	mov turntable_state, temp1
 
+	clr rotate_time_count
+	ldi temp1, CLOCKWISE
+	mov curr_rotate_direction, temp1
+
+	; Reset Door Buttons
+	; set INT0, INT1
+	ldi temp1, 1 << INT0
+	ori temp1, 1 << INT1
+	out EIMSK, temp1
+
+	; Reset timer
+	ldi temp1, 0b00000000
+	out TCCR0A, temp1				;Initialise timer 0
+	ldi temp1, 0b00000101
+	out TCCR0B, temp1				;Pre-scale to 1024
+	ldi temp1, 1<<TOIE0				;Enable overflow interrupts
+	sts TIMSK0, temp1
+
+	sei
+
+	rcall build_bslash ; replace ascii value 0 with a backslash
+
+	; Display stuff according to mode
+	rcall DISPLAY_FROM_MODE
+
+	; Display power on LEDs and open/closed on topmost
+	rcall LED_DISPLAY
+
 INIT_VAR:
 	initialise_variables 
+	clr debounceFlag
+	; Make motor run if necessary
+		; check if in correct mode
+			; if so run motor according to power
+			; otherwise do nothing
 
 BEFORE:
 	; Display stuff according to mode
@@ -342,13 +536,7 @@ BEFORE:
 
 	; Display power on LEDs and open/closed on topmost
 	rcall LED_DISPLAY
-
-
-	; Make motor run if necessary
-		; check if in correct mode
-			; if so run motor according to power
-			; otherwise do nothing
-
+	rjmp main
 DEBOUNCE_BUTTON_CLEAR:
 	clr debounceFlag
 
@@ -398,6 +586,14 @@ MAIN:
 	convert:
 		ldi temp1, 1 ; a button is not yet released
 		mov debounceFlag, temp1
+
+		; check if door is open // if so don't accept any input
+		; has to be placed here otherwise when we open/close the door again
+		; the row scan will catch 3 input after it has closed
+		ldi temp1, OPEN
+		cp door, temp1
+		breq MAIN
+
 		cpi col, 3 ; If the pressed key is in col.3
 		breq letters ; we have a letter
 		; If the key is not in col.3 and
@@ -537,14 +733,25 @@ MAIN:
 		; DO SOMETHING WITH KEY PRESSED HERE
 		jmp DEBOUNCE_BUTTON_CLEAR ; Restart main loop
 
+
 ;
 ; Displays the required amount of LEDS
 ;
 LED_DISPLAY:
-	
+
 	push temp1
+	mov temp1, door
+
+	ldi ZL, 0b00000000 ; door light off // closed
+
+	cpi temp1, CLOSED
+	breq LED_DISPLAY_DOOR_CLOSED
+	ldi ZL, 0b11111111 ; door light on // open
+
+	LED_DISPLAY_DOOR_CLOSED:
+		
 	mov temp1, spin_percentage
-   
+
     ldi YL, 0b11111111 
     cpi temp1, 1 ; 100 % // 1
     breq LED_DISPLAY_END
@@ -558,9 +765,7 @@ LED_DISPLAY:
 
 LED_DISPLAY_END:
     out PORTC, YL ; output motor percentage to led
-
-    ; TODO : Output door is open or closed
-
+    out PORTB, ZL ; output door state
     pop temp1
     ret
 
@@ -592,23 +797,38 @@ DISPLAY_FROM_MODE:
 		;||               C||
 		;-==================-
 
+		; check if min and sec = 0
+			; if so display nothing
+
+		no_entered_input temp1
+
+		cpi temp1, TRUE
+		brne NO_INPUT_YET
+
+		display_blank 15
+
+		jmp DISPLAY_THE_REST
+
+		NO_INPUT_YET:
 		display_lcd_data_reg ent_min
 		do_lcd_data ':'
 		display_lcd_data_reg ent_sec
 
 		display_blank 10
 
+		DISPLAY_THE_REST:
+
 		display_turntable
 
 		display_second_line
 
-		mov temp1, mode
-		ldi temp2, 'A'
-		add temp1, temp2
-		subi temp1, 1
-		do_lcd_data_reg temp1 ; DEBUGGING // display the current mode
+		; mov temp1, mode
+		; ldi temp2, 'A'
+		; add temp1, temp2
+		; subi temp1, 1
+		; do_lcd_data_reg temp1 ; DEBUGGING // display the current mode
 
-		display_blank 14 ; put back to 15 when done DEBUGGING
+		display_blank 15 ; put back to 15 when done DEBUGGING
 
 		display_door_state
 
@@ -875,14 +1095,6 @@ RUNNING :
 
 
 PAUSE : 
-
-	; TODO : Door pause
-	; check if door is open before you check the timer or even input
-	; if door is open
-		; if not in pause mode: 
-			; go to pause mode
-	;;;; This would mean we don't require to change anything else
-
 	HASH_PAUSE :
 		; cancel time
 		; return to entry mode
@@ -949,6 +1161,19 @@ SWITCH_MODE :
 
 	SWITCH_MODE_RUNNING :
 		ldi mode, RUNNING_MODE
+		; change current rotate state
+		mov temp1, curr_rotate_direction
+		cpi temp1, CLOCKWISE ; if not clockwise
+		brne CHANGE_TO_CLOCK ; change to clockwise
+
+		ldi temp1, COUNTER_CLOCKWISE ; otherwise change to anti-clockwise
+		mov curr_rotate_direction, temp1
+		jmp BEFORE
+
+		CHANGE_TO_CLOCK:
+
+		ldi temp1, CLOCKWISE
+		mov curr_rotate_direction, temp1
 		jmp BEFORE
 
 	SWITCH_MODE_FINISH :
@@ -956,15 +1181,79 @@ SWITCH_MODE :
 		jmp BEFORE
 
 
+;
+; OPEN AND CLOSE DOOR BUTTONS INTERRUPTS
+;
+EXT_INT0: ; open door
+	callINT
+
+	mov temp1, door
+	cpi temp1, OPEN
+	breq ALREADY_OPEN
+
+	; check mode
+	cpi mode, RUNNING_MODE
+	brne NOT_RUNNING_MODE
+
+	ldi mode, PAUSE_MODE
+	jmp END_DOOR_OPEN
+	
+	NOT_RUNNING_MODE:
+	cpi mode, FINISH_MODE
+	brne END_DOOR_OPEN
+
+	ldi temp1, OPEN
+	mov door, temp1
+
+	initialise_variables ; go back to entry_mode // reset variables
+
+	; update both the LCD and LED Displays
+	rcall DISPLAY_FROM_MODE
+	rcall LED_DISPLAY 
+
+	reti
+
+	END_DOOR_OPEN:
+		ldi temp1, OPEN
+		mov door, temp1
+
+	; update both the LCD and LED Displays
+	rcall DISPLAY_FROM_MODE
+	rcall LED_DISPLAY 
+
+	ALREADY_OPEN:
+		reti
+
+EXT_INT1: ; close door
+	callINT
+
+	mov temp1, door
+	cpi temp1, CLOSED
+	breq ALREADY_CLOSED
+
+	; simply close door
+	ldi temp1, CLOSED
+	mov door, temp1
+
+	; update both the LCD and LED Displays
+	rcall DISPLAY_FROM_MODE
+	rcall LED_DISPLAY
+
+	ALREADY_CLOSED:
+		reti
+
+backToSixty_JUMP:
+	jmp backToSixty
 OneSecond:
-;Code that executes once every second goes here
+	; Code that executes once every second goes here
 	mov temp1, ent_sec
 	cpi temp1, 0
-	breq backToSixty
+	breq backToSixty_JUMP
 	CountDownSec ent_sec ; countdown the number of seconds
 	Refresh:
-	bigDelay 960
-	rcall RESET_DISPLAY
+	bigDelay 1000 ; 1 sec delay
+	rotate_turntable
+	rcall DISPLAY_FROM_MODE
 	jmp TimerEnd
 	BackToSixty:
 		CountDownMin ent_min ; go down a minute
@@ -974,7 +1263,11 @@ OneSecond:
 
 OneSecond_JUMP:
 	jmp OneSecond
-TimerOverflow:   ;timer overflow interrupt comes here
+TimerOverflow:   ; timer overflow interrupt comes here
+	cpi mode, RUNNING_MODE
+	breq START_TIMER
+	reti ; the timer is paused in every mode except RUNNING_MODE
+START_TIMER:
 	push temp1
 	in temp1, SREG
 	push temp1
@@ -988,7 +1281,6 @@ TimerOverflow:   ;timer overflow interrupt comes here
 	breq OneSecond_JUMP
 	inc temp1
 	st Y, temp1
-	
 
 	TimerEnd:
 		pop Yh
@@ -1080,3 +1372,15 @@ sleep_5ms:
 	rcall sleep_1ms
 	rcall sleep_1ms
 	ret
+
+build_bslash:
+	do_lcd_command  0b01000000
+	do_lcd_data 0b00000
+	do_lcd_data 0b10000
+	do_lcd_data 0b01000
+	do_lcd_data 0b00100
+	do_lcd_data 0b00010
+	do_lcd_data 0b00001
+	do_lcd_data 0b00000
+	do_lcd_data 0b00000
+ret

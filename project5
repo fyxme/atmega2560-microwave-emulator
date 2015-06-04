@@ -179,7 +179,25 @@ lower 8 leds >> display power
 TIMER :
 >> for every second that passes we'll have to check for the turntable rotation
 
-TODO:
->> finish display
->> finish led
->> add buttons
+>> Turntable rotation :  the turntable should rotate at 3 revolutions per minute. ; to fix
+        >> 1 rev every 20 sec
+            >> 8 states >> 1 state every 2.5 seconds -- 250 miliseconds
+    >> Each time the microwave is started, the turntable should rotate in the opposite direction to the previous run.
+    >> Solution : turntable counter -- when it reaches 5 it changes the current state of the turntable based on the past_rotation
+
+
+
+TODO LIST: 
+>> Allow input while in running mode ; ... fcb page
+
+>> Connect Motor ; take one from lab5
+    >> if interrupt make it run all the time then cpi mode, RUNNING_MODE
+    >> else make it run from TimerOverflow
+
+
+
+
+
+
+
+
