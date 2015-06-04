@@ -47,6 +47,7 @@
 ;
 .def ent_sec = r13 ; number of minutes entered
 .def ent_min = r14 ; number of seconds entered
+.def q_sec_counter = r15 ; number of quarter seconds passed
 
 ;
 ; TURNTABLE
@@ -87,7 +88,6 @@
 	Debounced:
 		ldi temp1, 1
 		add debounceFlag, temp1
-		clear debounceCounter
 .endmacro
 .macro clear
 		ldi YL, low(@0)
@@ -376,7 +376,6 @@
 
 	DecSeconds:
 		subi temp1, 1
-		rjmp CountDownEnd
 	CountDownEnd:
 		mov @0, temp1
 		pop temp2
@@ -401,55 +400,10 @@
 		mov @0, temp1
 		pop temp2
 		pop temp1
-.endmacro	
-.macro delay2 ; ~@0 us - micro seconds
-    push temp1
-    push temp2
-    in temp1, SREG
-    push temp1
-
-    ldi temp1, low(@0 << 1)
-    ldi temp2, high(@0 << 1)
-
-delayLoop:
-	subi temp1, 1
-	sbci temp2, 0
-	nop
-    nop
-    nop
-    nop
-	brne delayLoop
-
-    pop temp1
-    out SREG, temp1
-    pop temp2
-    pop temp1
-.endmacro
-.macro bigDelay ; ~@0 ms - miliseconds
-    push temp1
-    push temp2
-    in temp1, SREG
-    push temp1
-
-    ldi temp1, low(@0)
-    ldi temp2, high(@0)
-
-bigDelayLoop:
-	subi temp1, 1
-	sbci temp2, 0
-    delay2 1000 ; ~1 ms
-	brne bigDelayLoop
-
-    pop temp1
-    out SREG, temp1
-    pop temp2
-    pop temp1
 .endmacro
 
 .dseg
 TimerCounter:
-	.byte 1
-DebounceCounter: ; count to 0.1 second
 	.byte 2
 
 .cseg
@@ -507,10 +461,16 @@ RESET:
 	; Reset timer
 	ldi temp1, 0b00000000
 	out TCCR0A, temp1				;Initialise timer 0
-	ldi temp1, 0b00000101
-	out TCCR0B, temp1				;Pre-scale to 1024
+	ldi temp1, 0b00000101 ; Pre-scale to 1024
+	out TCCR0B, temp1				
 	ldi temp1, 1<<TOIE0				;Enable overflow interrupts
 	sts TIMSK0, temp1
+
+	; Reset Motor
+	LDI temp1,  0
+	STS OCR3BL, temp1
+	CLR temp1
+	STS OCR3BH, temp1
 
 	sei
 
@@ -1245,14 +1205,14 @@ EXT_INT1: ; close door
 backToSixty_JUMP:
 	jmp backToSixty
 OneSecond:
+	clear TimerCounter
 	; Code that executes once every second goes here
 	mov temp1, ent_sec
 	cpi temp1, 0
 	breq backToSixty_JUMP
 	CountDownSec ent_sec ; countdown the number of seconds
 	Refresh:
-	bigDelay 1000 ; 1 sec delay
-	rotate_turntable
+	rotate_turntable ; changes every 3 seconds
 	rcall DISPLAY_FROM_MODE
 	jmp TimerEnd
 	BackToSixty:
@@ -1261,26 +1221,115 @@ OneSecond:
 		mov ent_sec, temp1 ; sec number of seconds to 60
 		jmp OneSecond
 
+; Quarter_second:
+; 	clear TimerCounter
+; 	; code that executes every quarter seconds
+
+; 	mov temp1, q_sec_counter
+; 	mov temp2, spin_percentage
+; 	cpi temp1, 1
+; 	brne LESS_THAN_1
+; 	; check if > 1 * quarter second :
+; 		; if less than jump over
+; 		; else 
+; 			; check if motor mode = 25%
+		
+; 		rotate_turntable ; changes every 3 seconds
+
+; 		cpi temp2, 3 ; 25%
+; 		brne LESS_THAN_1
+
+; 		; stop the motor
+; 		push temp1
+; 		ldi temp1, 0
+; 		sts OCR3BL, temp1
+; 		pop temp1
+
+; 	LESS_THAN_1:
+
+; 	cpi temp1, 2
+; 	brne LESS_THAN_2
+; 	; check if > 2 * quarter second :
+; 		; if less than jump over
+; 		; else
+; 			; check if motor mode = 50%
+; 		cpi temp2, 2 ; 50%
+; 		brne LESS_THAN_2
+
+; 		; stop the motor
+; 		push temp1
+; 		ldi temp1, 0
+; 		sts OCR3BL, temp1
+; 		pop temp1
+
+; 	LESS_THAN_2:
+
+; 	cpi temp1, 4
+; 	brne LESS_THAN_4
+; 	; check if == 4 * quarter second :
+; 		; if so update display
+; 		; turn on motor again
+; 		; reset quarter second counter
+; 		; otherwise jump over
+
+; 		ldi temp1, 0
+; 		mov q_sec_counter, temp1
+
+; 		mov temp1, ent_sec
+; 		cpi temp1, 0
+; 		breq backToSixty_JUMP
+; 		CountDownSec ent_sec ; countdown the number of seconds
+
+; 		; start motor again
+; 		push temp1
+; 		ldi temp1, 75
+; 		sts OCR3BL, temp1
+; 		pop temp1
+
+; 		Refresh:
+; 		rcall DISPLAY_FROM_MODE
+
+	
+; 	LESS_THAN_4:
+; 	ldi temp1, 1
+; 	add q_sec_counter, temp1 ; increase the number of quarter seconds
+; 	jmp TimerEnd
+; 	BackToSixty:
+; 		CountDownMin ent_min ; go down a minute
+; 		ldi temp1, 60
+; 		mov ent_sec, temp1 ; set number of seconds to 60
+; 		jmp Quarter_second
+
 OneSecond_JUMP:
 	jmp OneSecond
+; Quarter_second_JUMP:
+; 	jmp Quarter_second
 TimerOverflow:   ; timer overflow interrupt comes here
 	cpi mode, RUNNING_MODE
 	breq START_TIMER
 	reti ; the timer is paused in every mode except RUNNING_MODE
 START_TIMER:
+	; start the motor
+	; push temp1
+	; ldi temp1, 75
+	; sts OCR3BL, temp1
+	; pop temp1
+
 	push temp1
 	in temp1, SREG
 	push temp1
 	push Yl
 	push Yh
 	
-	ldi Yh, high(TimerCounter)
-	ldi Yl, low(TimerCounter)
-	ld temp1, Y
-	cpi temp1, 61
+	lds r24, TimerCounter
+	lds r25, TimerCounter+1
+	adiw r25:r24, 1
+	cpi r24, low(61) ; 61 ~= 10^6/(256 * pre-scalar / 16 MHz) // pre-scalar == 1024
+	ldi temp1, high(61) ; 61 ~= 10^6/(256 * pre-scalar / 16 MHz)
+	cpc r25, temp1
 	breq OneSecond_JUMP
-	inc temp1
-	st Y, temp1
+	sts TimerCounter,r24
+	sts TimerCounter+1, r25
 
 	TimerEnd:
 		pop Yh
