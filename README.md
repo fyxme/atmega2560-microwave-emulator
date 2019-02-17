@@ -1,3 +1,20 @@
+# AVR programming ATMega2560 - Microwave emulator project
+
+Code written as part of COMP2121 - Microprocessors and Interfacing at UNSW Australia.
+
+website url: https://webcms3.cse.unsw.edu.au/COMP2121/
+course url: https://www.handbook.unsw.edu.au/undergraduate/courses/2019/COMP2121/
+
+The objective was to write a Microwave emulator that had certain functionalities as decribed in project.pdf
+
+Pseudo code as well as user manual can be seen further down.
+
+# Installation
+
+It uses `wine` to compile code and `avrdude` to flash it. Look at `run.sh` for further information on how to execute.
+
+# A non exhaustive list of the features
+
 >> Time display
     -- 1 minute 15 seconds should be displayed as '01:15'.
 
@@ -33,8 +50,6 @@
 -- Finished mode
     >> Cooking has been completed
 
-
-
 -- FUNCTIONS
     > timer function
     > key presses function
@@ -51,6 +66,8 @@
     past_rotate_direction = r18 // 1 = clockwise && 2 = anti-clockwise
     spin_percentage = r19 // 1 - 100%, 2 - 50%, 3 - 25%
     door_is_open = r20 // closed by default
+
+## Pseudo code
 
 ENTRY MODE :
     // if door is open :
@@ -110,7 +127,6 @@ FINISHED MODE :
     // while 1 :
         // if '#' input or open door input :
             // goto entry mode
-
 
 
 
@@ -184,20 +200,5 @@ TIMER :
             >> 8 states >> 1 state every 2.5 seconds -- 250 miliseconds
     >> Each time the microwave is started, the turntable should rotate in the opposite direction to the previous run.
     >> Solution : turntable counter -- when it reaches 5 it changes the current state of the turntable based on the past_rotation
-
-
-
-TODO LIST: 
->> Allow input while in running mode ; ... fcb page
-
->> Connect Motor ; take one from lab5
-    >> if interrupt make it run all the time then cpi mode, RUNNING_MODE
-    >> else make it run from TimerOverflow
-
-
-
-
-
-
 
 
